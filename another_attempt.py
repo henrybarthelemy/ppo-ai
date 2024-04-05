@@ -49,7 +49,11 @@ class ActorCriticPPO(nn.Module):
         return action
 
     def train(self, states, actions, advantages, discounted_rewards):
-        states = torch.FloatTensor(states)
+        print("Training")
+        # Convert list of states into a single NumPy array
+        states_np = np.array(states)
+        # Convert the NumPy array into a PyTorch tensor
+        states = torch.FloatTensor(states_np)
         actions = torch.LongTensor(actions)
         advantages = torch.FloatTensor(advantages)
         discounted_rewards = torch.FloatTensor(discounted_rewards)
@@ -71,7 +75,7 @@ class ActorCriticPPO(nn.Module):
         self.actor_optimizer.zero_grad()
         self.critic_optimizer.zero_grad()
 
-        actor_loss.backward()
+        actor_loss.backward(retain_graph=True)
         critic_loss.backward()
 
         self.actor_optimizer.step()
@@ -117,6 +121,7 @@ agent = ActorCriticPPO(state_dim, action_dim, lr_actor, lr_critic)
 
 # Training loop
 for epoch in range(epochs):
+    print(f'Epoch {epoch}/{epochs}')
     states = []
     actions = []
     rewards = []
