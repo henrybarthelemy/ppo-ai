@@ -77,18 +77,18 @@ class PPO:
     """
     Use our critic to evaluate the value of each observation in a batch
     """
-    def evaluate(self, batch_obs, batch_acts):
 
+    def evaluate(self, batch_obs, batch_acts):
         Vs = []
         log_probs = []
         with torch.no_grad():
-            for j in range(len(batch_obs)):
-                V = self.critic(batch_obs[j]).squeeze()
-                pi = self.actor.pi(batch_obs[j], softmax_dim=0)
+            for obs in batch_obs:
+                V = self.critic(obs).squeeze()
+                pi = self.actor.pi(obs, softmax_dim=0)
                 m = Categorical(pi)
                 a = m.sample().item()
                 pi_a = pi[0][a].item()
-                Vs.append(a)
+                Vs.append(V)
                 log_probs.append(pi_a)
         return Vs, log_probs
 
@@ -159,6 +159,9 @@ class PPO:
         batch_rtgs = torch.tensor(batch_rtgs, dtype=torch.float)
         return batch_rtgs
 
+    """
+    Resizes image to 84x84
+    """
     def process_observation(self, observation):
         img = Image.fromarray(observation)
         img = img.resize((84, 84))
