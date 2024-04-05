@@ -5,6 +5,7 @@ import torch.optim as optim
 import gym
 from torchvision.transforms import Resize
 from PIL import Image
+import matplotlib.pyplot as plt
 
 class ActorCriticPPO(nn.Module):
     def __init__(self, state_dim, action_dim, lr_actor=0.0001, lr_critic=0.001):
@@ -42,14 +43,15 @@ class ActorCriticPPO(nn.Module):
         return critic
 
     def get_action(self, state):
-        state = torch.FloatTensor(state).unsqueeze(0)
-        action_probs = self.actor(state)
-        action_dist = torch.distributions.Categorical(action_probs)
-        action = action_dist.sample().item()
+        with torch.no_grad():
+            state = torch.FloatTensor(state).unsqueeze(0)
+            action_probs = self.actor(state)
+            action_dist = torch.distributions.Categorical(action_probs)
+            action = action_dist.sample().item()
         return action
 
     def train(self, states, actions, advantages, discounted_rewards):
-        # Convert list of states into a single NumPy array
+        # Convert list of states into av single NumPy array
         states_np = np.array(states)
         # Convert the NumPy array into a PyTorch tensor
         states = torch.FloatTensor(states_np)
@@ -83,6 +85,8 @@ class ActorCriticPPO(nn.Module):
         self.actor_optimizer.step()
         self.critic_optimizer.step()
 
+        return actor_loss.item(), critic_loss.item()
+
     def log_prob(self, mu, action):
         action_dist = torch.distributions.Categorical(mu)
         return action_dist.log_prob(action)
@@ -106,7 +110,7 @@ def process_observation(observation):
     return frame.flatten()
 
 # Environment settings
-env_name = "Breakout-v0"
+env_name = "Breakout-v4"
 env = gym.make(env_name)
 state_dim = 84 * 84  # Preprocessed frame dimensions
 action_dim = env.action_space.n
@@ -120,6 +124,10 @@ batch_size = 64
 
 # Initialize Actor-Critic PPO model
 agent = ActorCriticPPO(state_dim, action_dim, lr_actor, lr_critic)
+
+# Initialize lists to store losses
+actor_losses = []
+critic_losses = []
 
 # Training loop
 for epoch in range(epochs):
@@ -141,7 +149,8 @@ for epoch in range(epochs):
         actions.append(action)
         rewards.append(reward)
         dones.append(done)
-        values.append(agent.critic(torch.FloatTensor(state).unsqueeze(0)).detach().numpy()[0])
+        with torch.no_grad():
+            values.append(agent.critic(torch.FloatTensor(state).unsqueeze(0)).detach().numpy()[0])
 
         state = next_state
 
@@ -152,8 +161,19 @@ for epoch in range(epochs):
             # Reshape values to match the shape of discounted_rewards
             values = values.reshape(-1, 1)
             advantages = discounted_rewards - values
-            agent.train(states, actions, advantages, discounted_rewards)
+            actor_loss, critic_loss = agent.train(states, actions, advantages, discounted_rewards)
+            actor_losses.append(actor_loss)
+            critic_losses.append(critic_loss)
             break
 
 # Close environment
 env.close()
+
+# Plot losses
+plt.plot(actor_losses, label='Actor Loss')
+plt.plot(critic_losses, label='Critic Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.title('Actor-Critic PPO Losses')
+plt.legend()
+plt.show()
