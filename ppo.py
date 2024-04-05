@@ -1,23 +1,25 @@
 import numpy as np
 import gym
-from networks import FeedForwardNN
+from networks import FeedForwardNN, FeedForwardImageNetwork
 import torch
-from torch.distributions import MultivariateNormal
+from torch.distributions import MultivariateNormal, Categorical
 from torch.optim import Adam
 import torch.nn as nn
+from PIL import Image
 
 class PPO:
     def __init__(self, env):
+        self.device = 'cpu'
         # initialize all the hyper parameters in spot to help with readability
         self._init_hyperparameters()
         # environment we are working with
         self.env = env
         # observation and action space
         self.obs_dim = env.observation_space.shape[0]
-        self.act_dim = env.action_space.shape[0]
+        self.act_dim = env.action_space.n
         # actor and critic network
-        self.actor = FeedForwardNN(self.obs_dim, self.act_dim)
-        self.critic = FeedForwardNN(self.obs_dim, 1)
+        self.actor = FeedForwardImageNetwork(self.act_dim).to(self.device)
+        self.critic = FeedForwardImageNetwork(1).to(self.device)
         # Matrix for action exploration calculations
         self.cov_var = torch.full(size=(self.act_dim,), fill_value=0.5)
         self.cov_mat = torch.diag(self.cov_var)
@@ -76,24 +78,33 @@ class PPO:
     Use our critic to evaluate the value of each observation in a batch
     """
     def evaluate(self, batch_obs, batch_acts):
-        V = self.critic(batch_obs).squeeze()
-        mean = self.actor(batch_obs)
-        dist = MultivariateNormal(mean, self.cov_mat)
-        log_probs = dist.log_prob(batch_acts)
-        return V, log_probs
+
+        Vs = []
+        log_probs = []
+        with torch.no_grad():
+            for j in range(len(batch_obs)):
+                V = self.critic(batch_obs[j]).squeeze()
+                pi = self.actor.pi(batch_obs[j], softmax_dim=0)
+                m = Categorical(pi)
+                a = m.sample().item()
+                pi_a = pi[0][a].item()
+                Vs.append(a)
+                log_probs.append(pi_a)
+        return Vs, log_probs
 
     """
     Gets an action and log probability for it given the current policy
     """
     def get_action(self, obs):
-        # Get output from actor
-        mean = self.actor(obs)
-        # Create our Multivariate Normal Distribution
-        dist = MultivariateNormal(mean, self.cov_mat)
-        # Sample action and get its log probability
-        action = dist.sample()
-        log_prob = dist.log_prob(action)
-        return action.detach().numpy(), log_prob.detach()
+        if isinstance(obs, np.ndarray):
+            obs = torch.from_numpy(obs).float().to(self.device)
+        with torch.no_grad():
+            pi = self.actor.pi(obs, softmax_dim=0)
+            m = Categorical(pi)
+            a = m.sample().item()
+            pi_a = pi[0][a].item()
+            return a, pi_a
+
 
     """
     Collect a batch of data
@@ -113,11 +124,13 @@ class PPO:
             ep_rews = []
 
             obs, _ = self.env.reset()
+            obs = self.process_observation(obs)
             for ep_t in range(self.max_timesteps_per_episode):
                 t += 1
                 batch_obs.append(obs)
                 action, log_prob = self.get_action(obs)
                 obs, rew, done, _, _ = self.env.step(action)
+                obs = self.process_observation(obs)
                 ep_rews.append(rew)
                 batch_acts.append(action)
                 batch_log_probs.append(log_prob)
@@ -127,7 +140,7 @@ class PPO:
             batch_lens.append(ep_t + 1)
             batch_rews.append(ep_rews)
 
-        batch_obs = torch.tensor(batch_obs, dtype=torch.float)
+        batch_obs = [torch.tensor(batch_ob, dtype=torch.float) for batch_ob in batch_obs]
         batch_acts = torch.tensor(batch_acts, dtype=torch.float)
         batch_log_probs = torch.tensor(batch_log_probs, dtype=torch.float)
         batch_rtgs = self.compute_rtgs(batch_rews)
@@ -146,8 +159,28 @@ class PPO:
         batch_rtgs = torch.tensor(batch_rtgs, dtype=torch.float)
         return batch_rtgs
 
+    def process_observation(self, observation):
+        img = Image.fromarray(observation)
+        img = img.resize((84, 84))
+        img = img.convert("L")
+        img = np.array(img)
+        img = torch.from_numpy(img)
+        img = img.unsqueeze(0)
+        img = img.unsqueeze(0)
+        img = img / 255.0
+        img = img.to(self.device)
+        return img
 
-env = gym.make('Pendulum-v1')
+    def save(self, episode):
+        torch.save(self.critic.state_dict(), "./model/ppo_critic{}.pth".format(episode))
+        torch.save(self.actor.state_dict(), "./model/ppo_actor{}.pth".format(episode))
+
+    def load(self, episode):
+        self.critic.load_state_dict(torch.load("./model/ppo_critic{}.pth".format(episode)))
+        self.actor.load_state_dict(torch.load("./model/ppo_actor{}.pth".format(episode)))
+
+
+env = gym.make('Breakout-v4')
 model = PPO(env)
 model.learn(10000)
 

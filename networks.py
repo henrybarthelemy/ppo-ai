@@ -23,16 +23,13 @@ class FeedForwardNN(nn.Module):
 
 class FeedForwardImageNetwork(nn.Module):
     def __init__(self, out_dim):
-        super(FeedForwardNN, self).__init__()
-
+        super(FeedForwardImageNetwork, self).__init__()
+        self.relu = nn.ReLU()
         self.conv1 = nn.Conv2d(1, 32, kernel_size=(8, 8), stride=(4, 4))
         self.conv2 = nn.Conv2d(32, 64, kernel_size=(4, 4), stride=(2, 2))
         self.conv3 = nn.Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1))
-
         self.flatten = nn.Flatten()
-
         self.dropout = nn.Dropout(p=0.2)
-
         self.action_value1 = nn.Linear(3136, 1024)
         self.action_value2 = nn.Linear(1024, 1024)
         self.action_value3 = nn.Linear(1024, out_dim)
@@ -53,6 +50,10 @@ class FeedForwardImageNetwork(nn.Module):
         action_value2 = self.relu(self.action_value2(action_value1))
         output = self.action_value3(action_value2)
         return output
+
+    def pi(self, obs, softmax_dim=0):
+        prob = F.softmax(self.forward(obs), dim=softmax_dim)
+        return prob
 
     def save_the_model(self, weights_filename="models/latest.pt"):
         if not os.path.exists("models"):
