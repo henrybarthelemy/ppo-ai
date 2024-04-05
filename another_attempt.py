@@ -49,7 +49,6 @@ class ActorCriticPPO(nn.Module):
         return action
 
     def train(self, states, actions, advantages, discounted_rewards):
-        print("Training")
         # Convert list of states into a single NumPy array
         states_np = np.array(states)
         # Convert the NumPy array into a PyTorch tensor
@@ -60,7 +59,10 @@ class ActorCriticPPO(nn.Module):
 
         mu = self.actor(states)
         value = self.critic(states)
-        advantage = advantages - value.squeeze()
+        value_squeezed = value.squeeze()
+        advantages = advantages.squeeze(1)
+
+        advantage = advantages - value_squeezed
         old_mu = mu.gather(1, actions.unsqueeze(1)).squeeze()
 
         # Actor loss
@@ -86,12 +88,12 @@ class ActorCriticPPO(nn.Module):
         return action_dist.log_prob(action)
 
     def discounted_rewards(self, rewards, gamma):
-        discounted_rewards = np.zeros_like(rewards)
+        discounted_rewards = np.zeros(len(rewards))  # Initialize as 1D array
         running_add = 0
         for t in reversed(range(len(rewards))):
             running_add = running_add * gamma + rewards[t]
             discounted_rewards[t] = running_add
-        return discounted_rewards
+        return discounted_rewards[:, np.newaxis]  # Reshape to have shape (batch_size, 1)
 
 """
 Resizes image to 84x84
@@ -145,7 +147,11 @@ for epoch in range(epochs):
 
         if done:
             discounted_rewards = agent.discounted_rewards(rewards, gamma)
-            advantages = discounted_rewards - np.array(values)
+            # Assuming values is a list or array of values for each state in the episode
+            values = np.array(values)
+            # Reshape values to match the shape of discounted_rewards
+            values = values.reshape(-1, 1)
+            advantages = discounted_rewards - values
             agent.train(states, actions, advantages, discounted_rewards)
             break
 
