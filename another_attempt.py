@@ -6,6 +6,8 @@ import gym
 from torchvision.transforms import Resize
 from PIL import Image
 import matplotlib.pyplot as plt
+from tqdm import tqdm
+import time
 
 class ActorCriticPPO(nn.Module):
     def __init__(self, state_dim, action_dim, lr_actor=0.0001, lr_critic=0.001):
@@ -99,6 +101,7 @@ class ActorCriticPPO(nn.Module):
             discounted_rewards[t] = running_add
         return discounted_rewards[:, np.newaxis]  # Reshape to have shape (batch_size, 1)
 
+
 """
 Resizes image to 84x84
 """
@@ -108,6 +111,7 @@ def process_observation(observation):
     frame = Resize((84, 84))(frame)
     frame = np.array(frame)
     return frame.flatten()
+
 
 # Environment settings
 env_name = "Breakout-v4"
@@ -130,8 +134,7 @@ actor_losses = []
 critic_losses = []
 
 # Training loop
-for epoch in range(epochs):
-    print(f'Epoch {epoch}/{epochs}')
+for epoch in tqdm(range(epochs)):
     states = []
     actions = []
     rewards = []
@@ -142,19 +145,19 @@ for epoch in range(epochs):
     state = process_observation(state)
     while True:
         action = agent.get_action(state)
-        next_state, reward, done, _, _ = env.step(action)
+        env.step(1)
+        next_state, reward, terminated, truncated, _ = env.step(action)
         next_state = process_observation(next_state)
 
         states.append(state)
         actions.append(action)
         rewards.append(reward)
-        dones.append(done)
+        dones.append(terminated)
         with torch.no_grad():
             values.append(agent.critic(torch.FloatTensor(state).unsqueeze(0)).detach().numpy()[0])
 
         state = next_state
-
-        if done:
+        if terminated or truncated:
             discounted_rewards = agent.discounted_rewards(rewards, gamma)
             # Assuming values is a list or array of values for each state in the episode
             values = np.array(values)
@@ -166,8 +169,7 @@ for epoch in range(epochs):
             critic_losses.append(critic_loss)
             break
 
-# Close environment
-env.close()
+env.close()  # Close the environment after training is done
 
 # Plot losses
 plt.plot(actor_losses, label='Actor Loss')
